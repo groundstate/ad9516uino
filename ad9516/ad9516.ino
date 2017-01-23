@@ -27,6 +27,7 @@
 #include <SPI.h>
 
 #define BUFLEN 64
+#define ERRSTACKLEN 20 // this is standard for SCPI
 
 // Default configuration is for 10 MHz input, 100 MHz output
 
@@ -125,8 +126,14 @@ char sbuf[BUFLEN+1];
 uint8_t  pos=0;
   
 uint8_t ad9516_init();
+void    push_error(int16_t);
+
+// Error handling
+int16_t errStack[ERRSTACKLEN]; // 
+uint8_t nErr;//
 
 uint8_t str2hex(char *s,int len,uint32_t *val){
+  // note that len is an int because <0 is allowed (and trapped)
   *val=0;
 
   if (len-2 > 8 || len < 3 ) // overflow, too short
@@ -152,7 +159,7 @@ uint8_t str2hex(char *s,int len,uint32_t *val){
 
 void setup() {
 
-  Serial.begin(9600);
+  nErr=0; 
 
   pinMode(statusPin, OUTPUT); // nb can't use the built-in led with SPI enabled
   digitalWrite(statusPin, HIGH); 
@@ -172,18 +179,21 @@ void setup() {
 
   // If all is well, light the happy light
   digitalWrite(statusPin, (ok?HIGH:LOW)); 
+
+  Serial.begin(9600);
  
 }
 
 void loop() {
   
   // Use a SCPI-like syntax for commands
-  // *RST
+  // *RST soft reset
   // *IDN?
   // :REG #Hxxxx? read a register
   // :REG #Hxxxx,#Hxxxx set a register
   // :REG? dump all registers
-
+  // :SYST:ERR?
+  
   uint32_t reg;
   uint32_t val;
   uint8_t ret;
@@ -191,64 +201,70 @@ void loop() {
   if (Serial.available() > 0){
     cbuf = Serial.read();
     cbuf=toupper(cbuf); // toupper() uses 100 bytes
-    if (pos==BUFLEN+1){// overflow
-      pos=0;
-      Serial.println("ERR");
+    if (pos==BUFLEN+1){// input buffer overrun
+      clear_sbuf();
+      push_error(-363); // std_inputBufferOverrun
       return;
     }
+    
     if (cbuf==10){ // terminate on newline
         sbuf[pos]=0; // terminate the string
-        
-        if (pos<4){ // too short
-          goto ERROR;
-        }
-        
-        if (sbuf[0]=='*' && sbuf[1]=='R' && sbuf[2]== 'S' && sbuf[3]=='T'){ // strstr uses 4K ..
-          pos=0;
-          Serial.println("Reset");
-          return;
-        }
-        
-        if (sbuf[0]=='*' && sbuf[1]=='I' && sbuf[2]== 'D' && sbuf[3]=='N' && sbuf[4]=='?'){
-          pos=0;
-          Serial.println("AD9516uino,v0.1");
+
+        // In the following, string length is not tested because the buffer is zeroed after parsing
+        // so that we never inadvertently use data from a previous command
+        if (sbuf[0]=='*' && sbuf[1]=='I' && sbuf[2]== 'D' && sbuf[3]=='N' && sbuf[4]=='?' && pos==5){
+          clear_sbuf();
+          Serial.println("AD9516uino,v0.2");
           return;
         } 
         
-        if (sbuf[0]==':' && sbuf[1]=='R' && sbuf[2]== 'E' && sbuf[3]=='G'){
-          if (pos<5){
-            goto ERROR;
+        if (sbuf[0]=='*' && sbuf[1]=='R' && sbuf[2]== 'S' && sbuf[3]=='T' && pos==4){ // strstr uses 4K ..
+          ad9516_init();
+          clear_sbuf();
+          return;
+        }
+        
+        if (sbuf[0]==':' && sbuf[1]=='S' && sbuf[2]=='Y' && sbuf[3]== 'S' && sbuf[4]=='T' && sbuf[5]==':' &&
+            sbuf[6]=='E' && sbuf[7]=='R' && sbuf[8]== 'R' && sbuf[9]=='?' && pos==10){ 
+          if (nErr==0){
+            Serial.println("+0,\"No error\"");
           }
+          else{
+            Serial.print(errStack[nErr-1],DEC);
+            Serial.println(",\"RTFM\""); // yes, really
+            pop_error();
+          }
+          clear_sbuf();
+          return;
+        }
+        
+        if (sbuf[0]==':' && sbuf[1]=='R' && sbuf[2]== 'E' && sbuf[3]=='G'){
           
           if (sbuf[4]=='?'){ // simple query
-            pos=0;
+            clear_sbuf();
             ad9516_dump_regs();
             return;
           }
           
           if (sbuf[pos-1]=='?'){ // register query
-            if (pos < 8){ // too short
-              goto ERROR;
-            }
-            
+          
             if ( str2hex(&(sbuf[4]),pos-5, &reg)){ // pos is length of string
                SPI.beginTransaction(SPISettings(SPI_SPEED,MSBFIRST,SPI_MODE0));
                digitalWrite(chipSelectPin, LOW); // select device
                ret = ad9516_read_reg((uint16_t) reg);
                digitalWrite(chipSelectPin, HIGH); // deselect device
                SPI.endTransaction();
-
                Serial.print(reg,HEX);
                Serial.print(",");
                Serial.println(ret,HEX);
-               
             }
-            else
-              goto ERROR;
-            
-            pos=0;
+            else{
+              push_error(-100);
+            }
+            clear_sbuf();
             return;
-          }
+            
+          } // if (sbuf[pos-1]=='?')
 
          // Could be a REG write so look for the delimiter
          int  ich=-1;
@@ -258,8 +274,11 @@ void loop() {
             break;
           }
          }
+         
          if (ich==-1){
-           goto ERROR;
+           clear_sbuf();
+           push_error(-103); // std_invalidSeparator
+           return;
          }
          
          // Can parse the two hex arguments now
@@ -274,27 +293,55 @@ void loop() {
            ad9516_write_reg(0x232,0x01,1);
            digitalWrite(chipSelectPin, HIGH); // deselect device
            SPI.endTransaction();
-           
+        
          }
-         else
-           goto ERROR;
-         pos=0;
+         else{
+           push_error(-100);
+         }
+         clear_sbuf();
          return;
-         
-         // drop through to ERROR
-          
-        }
-        ERROR: pos=0;
-        Serial.println("ERR"); 
-    }
+      
+      } //if (sbuf[0]==':' && sbuf[1]=='R' && sbuf[2]== 'E' && sbuf[3]=='G')
+      
+      clear_sbuf();
+      push_error(-100);
+      return;  
+    }//if (cbuf==10)
     else{
       if (!isspace(cbuf)){ // strip whitespace - it makes parsing simpler
         sbuf[pos]=cbuf;
         ++pos;
       }
-    }
+    }//if (cbuf==10)
    
+  } //if (Serial.available() > 0
+}
+
+void clear_sbuf()
+{
+  memset((void *) sbuf,0,BUFLEN+1);
+  pos=0;
+}
+
+// Pushes an error onto the stack
+void push_error(int16_t currErr){
+  if (nErr<ERRSTACKLEN){
+    errStack[nErr]=currErr;
+    ++nErr;
   }
+  else{
+     errStack[nErr-1]=-350; // stack overflow
+  }
+  //Serial.print("Pushed ");
+  //Serial.print(errStack[nErr-1],DEC);
+  //Serial.print(" ");
+  //Serial.println(nErr,DEC);
+}
+
+// Pops an error from the stack
+void pop_error(){
+  if (nErr > 0)
+    --nErr;
 }
 
 uint8_t ad9516_init()
@@ -312,10 +359,10 @@ uint8_t ad9516_init()
    
   SPI.beginTransaction(SPISettings(SPI_SPEED,MSBFIRST,SPI_MODE0));
   digitalWrite(chipSelectPin, LOW); // select device
-  
+
   ad9516_write_reg(0x00, 0x99,1); // long instructions, unidirectional
   ad9516_write_reg(0x232,0x01,1); // copy buffers to registers
-
+  
   // Test for a functioning chip by reading the ID register
   if((regVal=ad9516_read_reg(0x03)) != 0x01){ // NB part-specific
     ok=0;
@@ -330,13 +377,10 @@ uint8_t ad9516_init()
   delay(1000);
   
   if (ok==0){
-    Serial.print("Bad chip ID ");
-    Serial.println(regVal,HEX);
+    push_error(-240); // std_hardware
   }
-  else{
-    Serial.println("OK");
-  }
-  return ok;
+ 
+  return ok;pos=0;
 }
 
 uint8_t ad9516_read_reg(uint16_t reg)
@@ -346,7 +390,7 @@ uint8_t ad9516_read_reg(uint16_t reg)
    // For READ, MSB is 1
   uint16_t instructionWord = 0x8000 | (reg & 0x03ff) ;
   SPI.transfer16(instructionWord);
-  ret = SPI.transfer(0x0); // is this safe ?
+  ret = SPI.transfer(0x0); // extra bits seem to be ignored ... should only need 15 clocks (and this is what I see in AD's demo S/W)
   return ret;
 }
 

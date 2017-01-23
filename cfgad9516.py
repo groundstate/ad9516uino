@@ -55,6 +55,7 @@ parser = argparse.ArgumentParser(description='Configure an AD9516');
 parser.add_argument('--debug','-d',help='debug',action='store_true');
 parser.add_argument('--port','-p',help='specify the serial port',default='/dev/ttyACM0');
 parser.add_argument('--read','-r',help='read register REG',metavar=('REG'));
+parser.add_argument('--reset',help='reset',action='store_true');
 parser.add_argument('--show','-s',help='show all registers',action='store_true');
 parser.add_argument('--write','-w',help='write VAL to  register REG',nargs=2,metavar=('REG','VAL'));
 parser.add_argument('--version','-v',help='show version and exit',action='store_true');
@@ -76,11 +77,8 @@ except :
 # Test for an appropriately programmed Arduino
 port.write('*IDN?\n');
 idn = port.readline()[:-2]; # remove CRLF 
-if (re.match(r'ERR',idn)):
-	print('Device ERR');
-	exit();
 if (re.match(r'^AD9516uino',idn) == None):
-	print 'Found ' + idn + ' not AD516uino';
+	print 'Found ' + idn + ',not AD516uino';
 	exit();
 
 if (args.read):
@@ -92,13 +90,23 @@ if (args.read):
 	
 	hval = hex(ival)[2:]; # strip 0x
 	port.write(':REG#H'+hval+'?\n');
+	
 	regval = port.readline()[:-2];
+	if (len(regval)==0):
+		print "No response\n";
+		exit();
+		
 	regval = regval.upper();
 	m=re.match(r"\s*([a-fA-F0-9]+),\s*([a-fA-F0-9]+)",regval);
 	if (m):
 		print 'reg=0x'+m.group(1)+",val=0x"+m.group(2);
 	else:
 		print "Bad response - got ",regval;
+	
+	exit();
+
+if (args.reset):
+	port.write('*RST');
 	exit();
 	
 if (args.show):
@@ -128,9 +136,7 @@ if (args.write):
 	
 	hval = hex(ival)[2:]; # strip 0x
 	hval2 = hex(ival2)[2:]; # strip 0x
-	print ':REG#H'+hval+',#H'+hval2; 
 	port.write(':REG#H'+hval+',#H'+hval2+'\n');
-	print port.readline();
 	port.write(':REG#H232,#H1\n');
 	exit();
 	
