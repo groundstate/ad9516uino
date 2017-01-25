@@ -29,87 +29,74 @@
 #define BUFLEN 64
 #define ERRSTACKLEN 20 // this is standard for SCPI
 
-// Default configuration is for 10 MHz input, 100 MHz output
+// Default configuration is for 10 MHz input to REF1, 100 MHz output, on OUT9
 
 const struct {int reg; uint8_t val; } ad9516_regs[] = {
 {0x0000, 0x99}, // Serial port configuration: SDO active
 {0x0001, 0x00}, // blank
-{0x0002, 0x10}, // reserved
+{0x0002, 0x40}, // reserved
 {0x0003, 0x01}, // Part ID: AD9516-0 (read only)
 {0x0004, 0x00}, // Readback control: DEFAULT
 {0x0010, 0x7C}, // PLL: normal operation
-{0x0011, 0x05}, // R: lower 8 bits
+{0x0011, 0x01}, // R: lower 8 bits
 {0x0012, 0x00}, // R: upper 6 bits
-{0x0013, 0x0C}, // A counter
-{0x0014, 0x12}, // B counter: lower 8 bits
+{0x0013, 0x08}, // A counter
+{0x0014, 0x11}, // B counter: lower 8 bits
 {0x0015, 0x00}, // B counter: upper 5 bits
-{0x0016, 0x05}, // PLL control 1:Prescaler: Divide by 32 (32/33) mode
-{0x0017, 0xb4}, // PLL control 2: PLL_STATUS = Lock Detect
-{0x0018, 0x07}, // PLL control 3:
+{0x0016, 0x05}, // PLL control 1: Prescaler: Divide by 16 (16/17) mode
+{0x0017, 0x00}, // PLL control 2: PLL_STATUS = Lock Detect
+{0x0018, 0x07}, // PLL control 3: Set up for immediate VCO calibration
 {0x0019, 0x00}, // PLL control 4:
 {0x001A, 0x00}, // PLL control 5:
-{0x001B, 0xE0}, // PLL control 6: VCO+REF2+REF1 frequency monitor enabled
+{0x001B, 0x00}, // PLL control 6: VCO+REF2+REF1 frequency monitor enabled
 {0x001C, 0x02}, // PLL control 7: REF 1 on
 {0x001D, 0x00},
 {0x001E, 0x00},
-{0x001F, 0x0E}, // PLL
-
+{0x001F, 0x4F}, // PLL
 {0x00A0, 0x01}, // OUT6 delay bypass: DEFAULT
 {0x00A1, 0x00}, // OUT6 delay full-scale: DEFAULT
 {0x00A2, 0x00}, // OUT6 delay fraction: DEFAULT
-
 {0x00A3, 0x01}, // OUT7 delay bypass: DEFAULT
 {0x00A4, 0x00}, // OUT7 delay full-scale: DEFAULT
 {0x00A5, 0x00}, // OUT7 delay fraction: DEFAULT
-
 {0x00A6, 0x01}, // OUT8 delay bypass: DEFAULT
 {0x00A7, 0x00}, // OUT8 delay full-scale: DEFAULT
 {0x00A8, 0x00}, // OUT8 delay fraction: DEFAULT
-
 {0x00A9, 0x01}, // OUT9 delay bypass: DEFAULT
 {0x00AA, 0x00}, // OUT9 delay full-scale: DEFAULT
 {0x00AB, 0x00}, // OUT9 delay fraction: DEFAULT
-
-{0x00F0, 0x08}, // OUT0: DEFAULT (non-inverting,on, 780 mV)
+{0x00F0, 0x0A}, // OUT0: DEFAULT (non-inverting,on, 780 mV)
 {0x00F1, 0x0A}, // OUT1: DEFAULT (non-inverting,off,780 mV)
-{0x00F2, 0x08}, // OUT2: &c
+{0x00F2, 0x0A}, // OUT2: &c
 {0x00F3, 0x0A}, // OUT3
-{0x00F4, 0x08}, // OUT4
+{0x00F4, 0x0A}, // OUT4
 {0x00F5, 0x0A}, // OUT5
-
-{0x0140, 0x42}, // OUT6: DEFAULT (CMOSB off,LVDS, 3.5 mA,on)
+{0x0140, 0x4B}, // OUT6: DEFAULT (CMOSB off,LVDS, 3.5 mA,on)
 {0x0141, 0x43}, // OUT7: DEFAULT (off)
-{0x0142, 0x42}, // OUT8: &c
-{0x0143, 0x43}, // OUT9: &c
-
+{0x0142, 0x4A}, // OUT8: &c
+{0x0143, 0x4A}, // OUT9: &c
 {0x0190, 0x00}, // DIVIDER 0 (PECL)
 {0x0191, 0x80},
 {0x0192, 0x00},
-
 {0x0193, 0xBB}, // DIVIDER 1 (PECL)
 {0x0194, 0x00},
 {0x0195, 0x00},
-
 {0x0196, 0x00}, // DIVIDER 2 (PECL)
 {0x0197, 0x00},
 {0x0198, 0x00},
-
 {0x0199, 0x22}, // DIVIDER 3 (LVDS/CMOS)
 {0x019A, 0x00},
 {0x019B, 0x11},
 {0x019C, 0x00}, // Divider bypass
 {0x019D, 0x00}, // DIV3 DCCOFF
-
-{0x019E, 0x22}, // DIVIDER 4 (LVDS/CMOS)
+{0x019E, 0x66}, // DIVIDER 4 (LVDS/CMOS)
 {0x019F, 0x00}, 
-{0x01A0, 0x11}, 
-{0x01A1, 0x00},
+{0x01A0, 0x22}, 
+{0x01A1, 0x20},
 {0x01A2, 0x00}, // DIV4 DCCOF
-
 {0x01A3, 0x00}, // Reserved
-
-{0x01E0, 0x02}, // VCO divider:
-{0x01E1, 0x00}, // CLK input:
+{0x01E0, 0x00}, // VCO divider:
+{0x01E1, 0x02}, // CLK input:
 {0x0230, 0x00}, // System: power down and sync
 {0x0231, 0x00}, // System: blank/reserved
 {0x0232, 0x00}, // Update all registers
@@ -187,6 +174,7 @@ void setup() {
 void loop() {
   
   // Use a SCPI-like syntax for commands
+  // *CLS clear status
   // *RST soft reset
   // *IDN?
   // :REG #Hxxxx? read a register
@@ -217,6 +205,12 @@ void loop() {
           Serial.println("AD9516uino,v0.2");
           return;
         } 
+
+        if (sbuf[0]=='*' && sbuf[1]=='C' && sbuf[2]== 'L' && sbuf[3]=='S' && pos==4){
+          nErr=0;
+          clear_sbuf();
+          return;
+        }
         
         if (sbuf[0]=='*' && sbuf[1]=='R' && sbuf[2]== 'S' && sbuf[3]=='T' && pos==4){ // strstr uses 4K ..
           ad9516_init();
@@ -354,7 +348,8 @@ uint8_t ad9516_init()
 
   uint8_t regVal;
   uint8_t ok=1;
-
+  uint8_t i=0;
+  
   delay(1000);
    
   SPI.beginTransaction(SPISettings(SPI_SPEED,MSBFIRST,SPI_MODE0));
@@ -368,6 +363,21 @@ uint8_t ad9516_init()
     ok=0;
     goto CLEANUP;
   }
+
+  
+  while (ad9516_regs[i].reg != -1){
+    ad9516_write_reg(ad9516_regs[i].reg,ad9516_regs[i].val,1);
+    ++i;
+  }
+
+  ad9516_write_reg(0x232,0x01,1); // copy buffers to registers
+
+  // and calibrate
+  
+  ad9516_write_reg(0x018,0x06,1);
+  ad9516_write_reg(0x232,0x01,1);
+  ad9516_write_reg(0x018,0x07,1);
+  ad9516_write_reg(0x232,0x01,1);
   
   CLEANUP:
   
