@@ -44,7 +44,7 @@ const struct {int reg; uint8_t val; } ad9516_regs[] = {
 {0x0014, 0x11}, // B counter: lower 8 bits
 {0x0015, 0x00}, // B counter: upper 5 bits
 {0x0016, 0x05}, // PLL control 1: Prescaler: Divide by 16 (16/17) mode
-{0x0017, 0x00}, // PLL control 2: PLL_STATUS = Lock Detect
+{0x0017, 0xB4}, // PLL control 2: Digital Lock Detect (active high)
 {0x0018, 0x07}, // PLL control 3: Set up for immediate VCO calibration
 {0x0019, 0x00}, // PLL control 4:
 {0x001A, 0x00}, // PLL control 5:
@@ -165,8 +165,8 @@ void setup() {
   uint8_t ok = ad9516_init();
 
   // If all is well, light the happy light
-  digitalWrite(statusPin, (ok?HIGH:LOW)); 
-
+  digitalWrite(statusPin, (ok?LOW:HIGH)); 
+  
   Serial.begin(9600);
  
 }
@@ -326,6 +326,7 @@ void push_error(int16_t currErr){
   else{
      errStack[nErr-1]=-350; // stack overflow
   }
+  digitalWrite(statusPin,HIGH);
   //Serial.print("Pushed ");
   //Serial.print(errStack[nErr-1],DEC);
   //Serial.print(" ");
@@ -336,6 +337,7 @@ void push_error(int16_t currErr){
 void pop_error(){
   if (nErr > 0)
     --nErr;
+  if (nErr==0) {digitalWrite(statusPin,LOW);}
 }
 
 uint8_t ad9516_init()
